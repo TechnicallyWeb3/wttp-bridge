@@ -1,41 +1,33 @@
 {
-  "name": "wttp-gateway",
-  "version": "1.0.0",
-  "description": "http gateway for wttp",
+  "name": "wttp-bridge",
+  "version": "0.0.1",
+  "description": "HTTP to WTTP bridge, fetches wttp data to be accessed by native http sites",
   "main": "index.js",
-  "author": "@nickjunes",
   "scripts": {
-    "build": "webpack --mode production",
-    "watch": "webpack --watch",
-    "start": "webpack-dev-server"
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TechnicallyWeb3/wttp-bridge.git"
+  },
+  "keywords": [
+    "wttp",
+    "bridge",
+    "http",
+    "web3",
+    "tw3"
+  ],
+  "author": "TechnicallyWeb3",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/TechnicallyWeb3/wttp-bridge/issues"
+  },
+  "homepage": "https://github.com/TechnicallyWeb3/wttp-bridge#readme",
   "dependencies": {
-    "@babel/core": "^7.0.0",
-    "@babel/preset-env": "^7.0.0",
-    "babel-loader": "^8.0.0",
-    "copy-webpack-plugin": "^10.0.0",
-    "dotenv": "^16.4.5",
-    "dotenv-webpack": "^8.1.0",
-    "ethers": "^6.13.4",
-    "html-webpack-plugin": "^5.6.3",
-    "http-server": "^14.1.1",
-    "webpack": "^5.0.0",
-    "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^5.1.0"
-  },
-  "devDependencies": {
-    "assert": "^2.1.0",
-    "browserify-zlib": "^0.2.0",
-    "buffer": "^6.0.3",
-    "crypto-browserify": "^3.12.1",
-    "https-browserify": "^1.0.0",
-    "os-browserify": "^0.3.0",
-    "path-browserify": "^1.0.1",
-    "querystring-es3": "^0.2.1",
-    "stream-browserify": "^3.0.0",
-    "stream-http": "^3.2.0",
-    "url": "^0.11.4",
-    "util": "^0.12.5"
+    "@types/express": "^5.0.3",
+    "@wttp/handler": "^0.2.2",
+    "express": "^5.1.0"
   }
 }

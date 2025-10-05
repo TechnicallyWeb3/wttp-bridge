@@ -1,41 +1,88 @@
-# Web2 to Web3 (WTTP) Bridge
+# WTTP Bridge
 
-WTTP Bridge redirects WTTP requests through an embedded RPC in the browser. Query contract addresses after wttp.
-The server must be configured to send all requests back to index.html like a single page app.
+HTTP to WTTP protocol bridge server. Converts HTTP requests to WTTP protocol requests and serves the content.
 
-## To run
+## Features
 
-`yarn` or `npm install`
+- **Path-Based Routing:** Access WTTP content via `http://localhost:3000/{wttp-address}`
+- **Domain-Based Routing:** Access WTTP content via custom domains with DNS TXT records
+- **Automatic URL Rewriting:** Converts wttp:// URLs in HTML to bridge URLs
+- **CORS Support:** Enables cross-origin requests for web applications
+- **Debug Logging:** Comprehensive console logging for troubleshooting
 
-`yarn run start`
+## Installation
 
-## Deploy
+```bash
+npm install
+```
 
-Build to dist: `yarn run build`
+## Usage
 
-Deploy your dist to static hosting and set your routes to point back to index.html just like in a react app or SPA.
+Start the server:
+```bash
+npm start
+```
 
-To serve a single domain route a domain to a single contract address.
+Server runs on `http://localhost:3000` by default. Set `PORT` environment variable to change.
 
-### Examples
+## Two Operating Modes
 
-- http://localhost:5000/wttp/0xdDFAfc6013C9c17f421Ef0054691D62e0A28688C
-- http://localhost:5000/wttp/0xD8B79a32dCb6a2a5370069e97aE46cEb4a49D331
+### 1. Bridge Domains (Path-Based)
+The bridge runs at **wttp.page** and **wttp.link**. Everything after `/` becomes the WTTP URL path.
 
-## To serve a single web2 domain
+**Example:**
+```
+http://wttp.page/wordl3.eth/ → wttp://wordl3.eth/
+http://wttp.link/wordl3.eth/style.css → wttp://wordl3.eth/style.css
+http://localhost:3000/wordl3.eth/ → wttp://wordl3.eth/ (for local testing)
+```
 
-Step 1: set SINGLE_CONTRACT in .env to your contract
+### 2. Custom Domains (TXT Record-Based)
+Any OTHER domain (not wttp.page/wttp.link) triggers DNS TXT record lookup.
 
-Step 2: deploy the WTTP-Bridge way to a static host
+**TXT Record Format:** `v=wttp; a=<address>; chain=<chainId>;`
 
-Step 3: set your DNS to point your static host
+**Example:**
+```
+DNS: your-domain.com TXT "v=wttp; a=wordl3.eth; chain=11155111;"
+http://your-domain.com/ → wttp://wordl3.eth:11155111/
+http://your-domain.com/page.html → wttp://wordl3.eth:11155111/page.html
 
-## Please visit the TW3 browser for full browsing:
+Without chain:
+DNS: your-domain.com TXT "v=wttp; a=wordl3.eth;"
+http://your-domain.com/ → wttp://wordl3.eth/
+```
 
-[TW3 Browser](https://github.com/TechnicallyWeb3/min-web3)
+## Testing
 
-## TODO
+See [TESTING.md](TESTING.md) for detailed testing instructions.
 
-- Add support of other TLDs
-- Move resource fetching into service workers
-- Ban local cookies and non-secure javascript
+Quick test:
+```bash
+curl http://localhost:3000/wordl3.eth/
+```
+
+## Configuration
+
+Edit `BRIDGE_DOMAINS` array in `index.js` to add more bridge domains (path-based routing):
+```javascript
+const BRIDGE_DOMAINS = ['wttp.link', 'wttp.page', 'localhost', '127.0.0.1'];
+```
+
+Any domain NOT in this list will trigger TXT record lookup.
+
+## How It Works
+
+1. Server receives HTTP request
+2. Checks if hostname is a bridge domain (wttp.page, wttp.link, localhost)
+   - **Yes:** Path-based routing → `wttp://{path}`
+   - **No:** Custom domain → lookup DNS TXT record → `wttp://{txt-value}{path}`
+3. Constructs WTTP URL
+4. Fetches content via WTTP protocol
+5. Transforms HTML content (replaces wttp:// URLs)
+6. Returns content to client
+
+## License
+
+MIT
+

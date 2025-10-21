@@ -40,16 +40,16 @@ http://localhost:3000/wordl3.eth/ → wttp://wordl3.eth/ (for local testing)
 ### 2. Custom Domains (TXT Record-Based)
 Any OTHER domain (not wttp.page/wttp.link) triggers DNS TXT record lookup.
 
-**TXT Record Format:** `v=wttp; a=<address>; chain=<chainId>;`
+**TXT Record Format:** `v=wttp3; a=<address>; chain=<chainId>;`
 
 **Example:**
 ```
-DNS: your-domain.com TXT "v=wttp; a=wordl3.eth; chain=11155111;"
+DNS: wttp.your-domain.com TXT "v=wttp3; a=wordl3.eth; chain=11155111;"
 http://your-domain.com/ → wttp://wordl3.eth:11155111/
 http://your-domain.com/page.html → wttp://wordl3.eth:11155111/page.html
 
 Without chain:
-DNS: your-domain.com TXT "v=wttp; a=wordl3.eth;"
+DNS: wttp.your-domain.com TXT "v=wttp3; a=wordl3.eth;"
 http://your-domain.com/ → wttp://wordl3.eth/
 ```
 

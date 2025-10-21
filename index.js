@@ -13,13 +13,14 @@ const BRIDGE_DOMAINS = ['wttp.link', 'wttp.page', 'localhost', '127.0.0.1'];
 const DEFAULT_BRIDGE_URL = 'https://wttp.page/';
 /**
  * Look up and parse WTTP TXT records for a given hostname
- * Expected format: v=wttp; a=tw3.eth; chain=11155111;
+ * Expected format: v=wttp3; a=tw3.eth; chain=11155111;
  * Returns: { address: 'tw3.eth', chain: '11155111' } or null
  */
 async function lookupTXTRecord(hostname) {
-  console.log(`[DNS] Looking up TXT records for: ${hostname}`);
+  const wttpHostname = `wttp.${hostname}`;
+  console.log(`[DNS] Looking up TXT records for: ${wttpHostname}`);
   try {
-    const records = await dns.resolveTxt(hostname);
+    const records = await dns.resolveTxt(wttpHostname);
     console.log(`[DNS] Found ${records.length} TXT record(s):`, records);
     
     // Look for a WTTP-formatted record
@@ -27,8 +28,8 @@ async function lookupTXTRecord(hostname) {
       const txtValue = Array.isArray(record) ? record.join('') : record;
       console.log(`[DNS] Checking record: ${txtValue}`);
       
-      // Check if it's a WTTP record (v=wttp)
-      if (!txtValue.includes('v=wttp')) {
+      // Check if it's a WTTP record (v=wttp3)
+      if (!txtValue.includes('v=wttp3')) {
         continue;
       }
       
@@ -46,7 +47,7 @@ async function lookupTXTRecord(hostname) {
       console.log(`[DNS] Parsed TXT record:`, parsed);
       
       // Must have version and address
-      if (parsed.v === 'wttp' && parsed.a) {
+      if (parsed.v === 'wttp3' && parsed.a) {
         return {
           address: parsed.a,
           chain: parsed.chain || null
@@ -293,8 +294,8 @@ app.listen(port, () => {
   console.log(`  http://wttp.page/minesweep.eth/`);
   console.log(`  http://wttp.link/etherdoom.eth/`);
   console.log(`\nCustom Domain Usage (TXT record-based):`);
-  console.log(`  Configure DNS TXT record for: your-custom-domain.com`);
-  console.log(`  TXT record format: "v=wttp; a=wordl3.eth; chain=11155111;"`);
+  console.log(`  Configure DNS TXT record for: wttp.your-custom-domain.com`);
+  console.log(`  TXT record format: "v=wttp3; a=wordl3.eth; chain=11155111;"`);
   console.log(`  Access: http://your-custom-domain.com/`);
   console.log(`\nBridge domains (path-based):`, BRIDGE_DOMAINS);
   console.log(`All other domains use TXT record lookup`);

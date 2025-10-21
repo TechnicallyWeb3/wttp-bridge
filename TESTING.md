@@ -55,9 +55,9 @@ curl http://localhost:3000/wordl3.eth/scripts/app.js
 
 1. Set up a DNS TXT record for YOUR custom domain (NOT wttp.link/wttp.page):
 ```
-Host: your-custom-domain.com
+Host: wttp.your-custom-domain.com
 Type: TXT
-Value: v=wttp; a=wordl3.eth; chain=11155111;
+Value: v=wttp3; a=wordl3.eth; chain=11155111;
 ```
 
 2. Test the custom domain:
@@ -69,13 +69,13 @@ curl http://your-custom-domain.com/style.css
 **Expected Results:**
 - Console shows: `[URL Builder] Custom domain detected, looking up TXT record...`
 - Console shows: `[DNS] Found X TXT record(s): ...`
-- Console shows: `[DNS] Parsed TXT record: { v: 'wttp', a: 'wordl3.eth', chain: '11155111' }`
+- Console shows: `[DNS] Parsed TXT record: { v: 'wttp3', a: 'wordl3.eth', chain: '11155111' }`
 - Converts to `wttp://wordl3.eth:11155111/` and `wttp://wordl3.eth:11155111/style.css`
 - Returns content as if accessing wordl3.eth on chain 11155111
 
 **Without chain parameter:**
 ```
-Value: v=wttp; a=wordl3.eth;
+Value: v=wttp3; a=wordl3.eth;
 Result: wttp://wordl3.eth/
 ```
 

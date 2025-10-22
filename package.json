@@ -27,7 +27,7 @@
   "homepage": "https://github.com/TechnicallyWeb3/wttp-bridge#readme",
   "dependencies": {
     "@types/express": "^5.0.3",
-    "@wttp/handler": "^0.2.2",
+    "@wttp/handler": "^0.2.3",
     "express": "^5.1.0"
   }
 }

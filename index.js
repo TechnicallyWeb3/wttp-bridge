@@ -6,7 +6,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Initialize WTTP handler
-const wttp = new WTTPHandler();
+const wttp = new WTTPHandler(undefined, "polygon");
 
 // Bridge domains that use path-based routing (everything after / becomes wttp://)
 const BRIDGE_DOMAINS = ['wttp.link', 'wttp.page', 'localhost', '127.0.0.1'];
@@ -122,7 +122,8 @@ app.use((req, res, next) => {
   console.log(`[Request] Headers:`, {
     host: req.get('host'),
     'user-agent': req.get('user-agent'),
-    'accept': req.get('accept')
+    'accept': req.get('accept'),
+    'referer': req.get('referer')
   });
   next();
 });
@@ -232,10 +233,10 @@ app.use(async (req, res) => {
           // For bridge domains, include WTTP site context
           const pathParts = req.path.split('/').filter(p => p);
           const wttpSite = pathParts[0];
-          baseUrl = `${req.protocol}://${req.get('host')}/${wttpSite}/`;
+          baseUrl = `/${wttpSite}/`;
         } else {
           // For custom domains, use domain as base
-          baseUrl = `${req.protocol}://${req.get('host')}/`;
+          baseUrl = `/`;
         }
         
         console.log(`[Transform] Base URL: ${baseUrl}`);

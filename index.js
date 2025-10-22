@@ -290,7 +290,7 @@ async function handleCustomDomainRequest(req, res) {
  * Handle requests for bridge domains
  */
 async function handleBridgeDomainRequest(req, res) {
-  let path = req.path.startsWith('/') ? req.path : `/${req.path}`;
+  const path = req.path.startsWith('/') ? req.path : `/${req.path}`;
   const firstSegment = getFirstPathSegment(path);
   
   console.log(`[Bridge Domain] Handling request for path: ${path}`);
@@ -306,8 +306,13 @@ async function handleBridgeDomainRequest(req, res) {
       const refererFirstSegment = getFirstPathSegment(referer);
       if (refererFirstSegment && isContractOrENSAddress(refererFirstSegment)) {
         console.log(`[Bridge Domain] Prepending ${refererFirstSegment} from referer`);
-        path = `/${refererFirstSegment}${path}`;
-        console.log(`[Bridge Domain] New path: ${path}`);
+        const newPath = `/${refererFirstSegment}${path}`;
+        
+        // Modify the request object to reflect the new path
+        req.url = newPath + (req.url.includes('?') ? '?' + req.url.split('?')[1] : '');
+        req.path = newPath;
+        
+        console.log(`[Bridge Domain] Modified request path to: ${req.path}`);
       } else {
         console.log(`[Bridge Domain] Referer does not contain contract/ENS address`);
         send404(res, 'Invalid path: must start with Ethereum address or ENS name');
@@ -321,7 +326,7 @@ async function handleBridgeDomainRequest(req, res) {
   }
   
   // Try to fetch the resource
-  const wttpUrl = buildBridgeDomainWTTPUrl(path);
+  const wttpUrl = buildBridgeDomainWTTPUrl(req.path);
   let response = await fetchWTTPContent(wttpUrl);
   
   // If 404, try fallback with referer (for cases like nested paths)

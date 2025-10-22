@@ -8,9 +8,69 @@ const port = process.env.PORT || 3000;
 // Initialize WTTP handler
 const wttp = new WTTPHandler(undefined, "polygon");
 
-// Bridge domains that use path-based routing (everything after / becomes wttp://)
+// Configuration
 const BRIDGE_DOMAINS = ['wttp.link', 'wttp.page', 'localhost', '127.0.0.1'];
-const DEFAULT_BRIDGE_URL = 'https://wttp.page/';
+const DEFAULT_BRIDGE_URL = 'https://wttp.link/';
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Check if a hostname is a bridge domain
+ */
+function isBridgeDomain(hostname) {
+  return BRIDGE_DOMAINS.some(domain => 
+    hostname === domain || hostname.endsWith(`.${domain}`)
+  );
+}
+
+/**
+ * Check if a string is an Ethereum address (0x followed by 40 hex chars)
+ */
+function isEthereumAddress(str) {
+  if (!str) return false;
+  return /^0x[a-fA-F0-9]{40}$/.test(str);
+}
+
+/**
+ * Check if a string is an ENS address (ends with .eth)
+ */
+function isENSAddress(str) {
+  if (!str) return false;
+  return /^[a-zA-Z0-9-]+\.eth$/.test(str);
+}
+
+/**
+ * Check if a string is a contract or ENS address
+ */
+function isContractOrENSAddress(str) {
+  return isEthereumAddress(str) || isENSAddress(str);
+}
+
+/**
+ * Extract the first path segment from a URL or path
+ */
+function getFirstPathSegment(pathOrUrl) {
+  try {
+    // If it's a full URL, parse it
+    if (pathOrUrl && (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://'))) {
+      const url = new URL(pathOrUrl);
+      const segments = url.pathname.split('/').filter(s => s);
+      return segments[0] || null;
+    }
+    // Otherwise treat as path
+    const segments = pathOrUrl.split('/').filter(s => s);
+    return segments[0] || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+// ============================================================================
+// DNS LOOKUP
+// ============================================================================
+
 /**
  * Look up and parse WTTP TXT records for a given hostname
  * Expected format: v=wttp3; a=tw3.eth; chain=11155111;
@@ -19,21 +79,18 @@ const DEFAULT_BRIDGE_URL = 'https://wttp.page/';
 async function lookupTXTRecord(hostname) {
   const wttpHostname = `wttp.${hostname}`;
   console.log(`[DNS] Looking up TXT records for: ${wttpHostname}`);
+  
   try {
     const records = await dns.resolveTxt(wttpHostname);
-    console.log(`[DNS] Found ${records.length} TXT record(s):`, records);
+    console.log(`[DNS] Found ${records.length} TXT record(s)`);
     
-    // Look for a WTTP-formatted record
     for (const record of records) {
       const txtValue = Array.isArray(record) ? record.join('') : record;
-      console.log(`[DNS] Checking record: ${txtValue}`);
       
-      // Check if it's a WTTP record (v=wttp3)
       if (!txtValue.includes('v=wttp3')) {
         continue;
       }
       
-      // Parse the structured format: v=wttp; a=address; chain=chainId;
       const parsed = {};
       const parts = txtValue.split(';').map(s => s.trim()).filter(s => s);
       
@@ -44,10 +101,8 @@ async function lookupTXTRecord(hostname) {
         }
       }
       
-      console.log(`[DNS] Parsed TXT record:`, parsed);
-      
-      // Must have version and address
       if (parsed.v === 'wttp3' && parsed.a) {
+        console.log(`[DNS] Valid WTTP record found: ${parsed.a}`);
         return {
           address: parsed.a,
           chain: parsed.chain || null
@@ -58,73 +113,258 @@ async function lookupTXTRecord(hostname) {
     console.log(`[DNS] No valid WTTP TXT record found`);
     return null;
   } catch (error) {
-    console.log(`[DNS] Error looking up TXT records for ${hostname}:`, error.message);
+    console.log(`[DNS] Error looking up TXT records: ${error.message}`);
     return null;
   }
 }
 
+// ============================================================================
+// WTTP URL BUILDERS
+// ============================================================================
+
 /**
- * Determine if the hostname is a bridge domain (uses path-based routing)
- * If not a bridge domain, it's a custom domain that needs TXT lookup
+ * Build WTTP URL for custom domains (using TXT records)
  */
-function isBridgeDomain(hostname) {
-  // Check if hostname matches or ends with any of our bridge domains
-  return BRIDGE_DOMAINS.some(domain => 
-    hostname === domain || hostname.endsWith(`.${domain}`)
-  );
+async function buildCustomDomainWTTPUrl(hostname, path) {
+  console.log(`[Custom Domain] Looking up TXT record for: ${hostname}`);
+  
+  const txtRecord = await lookupTXTRecord(hostname);
+  if (txtRecord) {
+    let wttpUrl;
+    if (txtRecord.chain) {
+      wttpUrl = `wttp://${txtRecord.address}:${txtRecord.chain}${path}`;
+    } else {
+      wttpUrl = `wttp://${txtRecord.address}${path}`;
+    }
+    console.log(`[Custom Domain] Built WTTP URL: ${wttpUrl}`);
+    return wttpUrl;
+  }
+  
+  console.log(`[Custom Domain] No TXT record found, using hostname directly`);
+  return `wttp://${hostname}${path}`;
 }
 
 /**
- * Build the WTTP URL based on the request hostname and path
+ * Build WTTP URL for bridge domains (path-based routing)
  */
-async function buildWTTPUrl(req) {
-  const hostname = req.hostname;
-  const path = req.path.startsWith('/') ? req.path : `/${req.path}`;
+function buildBridgeDomainWTTPUrl(path) {
+  // Remove leading slash and convert to wttp://
+  const wttpPath = path.startsWith('/') ? path.substring(1) : path;
+  const wttpUrl = `wttp://${wttpPath}`;
+  console.log(`[Bridge Domain] Built WTTP URL: ${wttpUrl}`);
+  return wttpUrl;
+}
+
+/**
+ * Build fallback WTTP URL using referer path
+ */
+function buildFallbackWTTPUrl(originalPath, referer) {
+  const refererFirstSegment = getFirstPathSegment(referer);
   
-  console.log(`[URL Builder] Hostname: ${hostname}`);
-  console.log(`[URL Builder] Path: ${path}`);
-  console.log(`[URL Builder] Full URL: ${req.protocol}://${req.get('host')}${req.path}`);
+  if (refererFirstSegment && isContractOrENSAddress(refererFirstSegment)) {
+    // Prepend the referer's first segment to the current path
+    const fallbackPath = `/${refererFirstSegment}${originalPath}`;
+    const fallbackUrl = `wttp://${fallbackPath.substring(1)}`;
+    console.log(`[Fallback] Built fallback URL: ${fallbackUrl}`);
+    return fallbackUrl;
+  }
   
-  if (isBridgeDomain(hostname)) {
-    // For bridge domains (wttp.page, wttp.link, localhost), path becomes the full WTTP URL
-    // Remove leading slash and convert to wttp://
-    const wttpPath = path.substring(1);
-    const wttpUrl = `wttp://${wttpPath}`;
-    console.log(`[URL Builder] Bridge domain, built WTTP URL: ${wttpUrl}`);
-    return wttpUrl;
-  } else {
-    // For custom domains, look up TXT record
-    console.log(`[URL Builder] Custom domain detected, looking up TXT record...`);
-    
-    const txtRecord = await lookupTXTRecord(hostname);
-    if (txtRecord) {
-      // Build WTTP URL using TXT record: wttp://address:chain/path or wttp://address/path
-      let wttpUrl;
-      if (txtRecord.chain) {
-        wttpUrl = `wttp://${txtRecord.address}:${txtRecord.chain}${path}`;
-      } else {
-        wttpUrl = `wttp://${txtRecord.address}${path}`;
+  console.log(`[Fallback] Referer does not contain valid contract/ENS address`);
+  return null;
+}
+
+// ============================================================================
+// WTTP FETCHING
+// ============================================================================
+
+/**
+ * Fetch content from WTTP and return response
+ */
+async function fetchWTTPContent(wttpUrl) {
+  console.log(`[WTTP] Fetching: ${wttpUrl}`);
+  const response = await wttp.fetch(wttpUrl);
+  console.log(`[WTTP] Response status: ${response.status}`);
+  return response;
+}
+
+/**
+ * Transform HTML content by adding base tag and replacing wttp:// URLs
+ */
+function transformHTMLContent(content, baseUrl) {
+  let transformed = content;
+  
+  // Add base tag to HTML head
+  transformed = transformed.replace(
+    /<head[^>]*>/i,
+    `$&<base href="${baseUrl}">`
+  );
+  
+  // Replace wttp:// URLs with default bridge
+  transformed = transformed.replace(/wttp:\/\//g, DEFAULT_BRIDGE_URL);
+  
+  return transformed;
+}
+
+/**
+ * Send WTTP response to client
+ */
+async function sendWTTPResponse(res, response, req) {
+  // Set status code
+  res.status(response.status);
+  
+  // Pass through headers from WTTP response
+  if (response.headers && typeof response.headers.forEach === 'function') {
+    response.headers.forEach((value, key) => {
+      // Sanitize Content-Type header
+      if (key.toLowerCase() === 'content-type') {
+        value = value.replace(/;\s*charset=\s*$/i, '');
+        value = value.replace(/;\s*charset=;/gi, ';');
       }
-      console.log(`[URL Builder] Built WTTP URL from TXT: ${wttpUrl} (address: ${txtRecord.address}, chain: ${txtRecord.chain || 'default'})`);
-      return wttpUrl;
+      res.setHeader(key, value);
+    });
+  }
+  
+  // Add CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+  
+  // Get response body
+  const content = await response.text();
+  const contentType = res.getHeader('Content-Type') || '';
+  
+  // Transform HTML content
+  if (typeof content === 'string' && contentType.includes('text/html')) {
+    let baseUrl;
+    if (isBridgeDomain(req.hostname)) {
+      const pathParts = req.path.split('/').filter(p => p);
+      const wttpSite = pathParts[0];
+      baseUrl = `/${wttpSite}/`;
     } else {
-      console.log(`[URL Builder] No valid WTTP TXT record found, using hostname directly`);
-      const wttpUrl = `wttp://${hostname}${path}`;
-      return wttpUrl;
+      baseUrl = `/`;
     }
+    
+    const transformedContent = transformHTMLContent(content, baseUrl);
+    res.send(transformedContent);
+  } else {
+    res.send(content);
   }
 }
 
-// Middleware to log all incoming requests
+/**
+ * Send 404 error page
+ */
+function send404(res, message = 'Resource not found') {
+  res.status(404).json({
+    error: '404 Not Found',
+    message: message,
+    timestamp: new Date().toISOString()
+  });
+}
+
+// ============================================================================
+// REQUEST HANDLERS
+// ============================================================================
+
+/**
+ * Handle requests for custom domains
+ */
+async function handleCustomDomainRequest(req, res) {
+  const hostname = req.hostname;
+  const path = req.path.startsWith('/') ? req.path : `/${req.path}`;
+  
+  console.log(`[Custom Domain] Handling request for: ${hostname}${path}`);
+  
+  const wttpUrl = await buildCustomDomainWTTPUrl(hostname, path);
+  const response = await fetchWTTPContent(wttpUrl);
+  
+  if (response.status === 404) {
+    send404(res, `Resource not found at ${wttpUrl}`);
+    return;
+  }
+  
+  await sendWTTPResponse(res, response, req);
+}
+
+/**
+ * Handle requests for bridge domains
+ */
+async function handleBridgeDomainRequest(req, res) {
+  let path = req.path.startsWith('/') ? req.path : `/${req.path}`;
+  const firstSegment = getFirstPathSegment(path);
+  
+  console.log(`[Bridge Domain] Handling request for path: ${path}`);
+  console.log(`[Bridge Domain] First segment: ${firstSegment}`);
+  
+  // Check if first segment is a contract or ENS address
+  if (!firstSegment || !isContractOrENSAddress(firstSegment)) {
+    console.log(`[Bridge Domain] First segment is not a contract/ENS address`);
+    
+    // Try to prepend contract/ENS from referer
+    const referer = req.get('referer');
+    if (referer) {
+      const refererFirstSegment = getFirstPathSegment(referer);
+      if (refererFirstSegment && isContractOrENSAddress(refererFirstSegment)) {
+        console.log(`[Bridge Domain] Prepending ${refererFirstSegment} from referer`);
+        path = `/${refererFirstSegment}${path}`;
+        console.log(`[Bridge Domain] New path: ${path}`);
+      } else {
+        console.log(`[Bridge Domain] Referer does not contain contract/ENS address`);
+        send404(res, 'Invalid path: must start with Ethereum address or ENS name');
+        return;
+      }
+    } else {
+      console.log(`[Bridge Domain] No referer available`);
+      send404(res, 'Invalid path: must start with Ethereum address or ENS name');
+      return;
+    }
+  }
+  
+  // Try to fetch the resource
+  const wttpUrl = buildBridgeDomainWTTPUrl(path);
+  let response = await fetchWTTPContent(wttpUrl);
+  
+  // If 404, try fallback with referer (for cases like nested paths)
+  if (response.status === 404) {
+    console.log(`[Bridge Domain] Got 404, attempting fallback with referer`);
+    const referer = req.get('referer');
+    
+    if (referer) {
+      console.log(`[Bridge Domain] Referer: ${referer}`);
+      const fallbackUrl = buildFallbackWTTPUrl(req.path, referer);
+      
+      if (fallbackUrl) {
+        console.log(`[Bridge Domain] Trying fallback URL: ${fallbackUrl}`);
+        response = await fetchWTTPContent(fallbackUrl);
+        
+        if (response.status === 404) {
+          console.log(`[Bridge Domain] Fallback also returned 404`);
+          send404(res, `Resource not found at ${wttpUrl} or ${fallbackUrl}`);
+          return;
+        }
+      } else {
+        send404(res, `Resource not found at ${wttpUrl}`);
+        return;
+      }
+    } else {
+      console.log(`[Bridge Domain] No referer available for fallback`);
+      send404(res, `Resource not found at ${wttpUrl}`);
+      return;
+    }
+  }
+  
+  await sendWTTPResponse(res, response, req);
+}
+
+// ============================================================================
+// EXPRESS MIDDLEWARE & ROUTES
+// ============================================================================
+
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`\n${'='.repeat(80)}`);
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.protocol}://${req.get('host')}${req.url}`);
-  console.log(`[Request] Headers:`, {
-    host: req.get('host'),
-    'user-agent': req.get('user-agent'),
-    'accept': req.get('accept'),
-    'referer': req.get('referer')
-  });
+  console.log(`[Request] Referer: ${req.get('referer') || 'none'}`);
   next();
 });
 
@@ -132,133 +372,41 @@ app.use((req, res, next) => {
 app.get('/', async (req, res, next) => {
   const hostname = req.hostname;
   
-  // If it's a custom domain (not a bridge domain), treat it as a WTTP request
+  // If it's a custom domain, treat it as a WTTP request
   if (!isBridgeDomain(hostname)) {
-    console.log(`[Root] Custom domain detected, proceeding to WTTP handler`);
     return next();
   }
   
-  // Otherwise show the status page
-  console.log(`[Root] Bridge domain, showing status page`);
+  // Show status page for bridge domains
   res.json({
     status: 'WTTP Bridge Server Running',
-    version: '1.0.0',
+    version: '2.0.0',
     hostname: hostname,
     usage: {
-      bridgeDomains: 'http://wttp.page/{wttp-path} or http://wttp.link/{wttp-path} -> wttp://{wttp-path}',
+      bridgeDomains: 'http://wttp.page/{contract-or-ens}/{path} or http://wttp.link/{contract-or-ens}/{path}',
       customDomain: 'http://your-domain.com/{path} -> wttp://{txt-record}/{path}',
       examples: [
         'http://localhost:3000/wordl3.eth/',
         'http://wttp.page/wordl3.eth/',
-        'http://wttp.link/minesweep.eth/',
-        'http://custom-domain.com/ (with TXT record)'
+        'http://wttp.link/0x1234567890123456789012345678901234567890/index.html'
       ]
     },
     bridgeDomains: BRIDGE_DOMAINS
   });
 });
 
-// Main WTTP bridge handler - handles ALL requests
+// Main request handler
 app.use(async (req, res) => {
   try {
-    console.log(`[Bridge] Processing request...`);
+    const hostname = req.hostname;
     
-    // Build the WTTP URL based on hostname and path
-    const wttpUrl = await buildWTTPUrl(req);
-    
-    console.log(`[WTTP] Fetching: ${wttpUrl}`);
-    
-    // Fetch content from WTTP
-    const response = await wttp.fetch(wttpUrl);
-    
-    console.log(`[WTTP] Response received:`);
-    console.log(`  Status: ${response.status}`);
-    console.log(`  Headers type:`, response.headers.constructor.name);
-    
-    // Set status code
-    res.status(response.status);
-    
-    // Pass through headers from WTTP response
-    // Headers object from Fetch API requires .forEach() method
-    if (response.headers && typeof response.headers.forEach === 'function') {
-      response.headers.forEach((value, key) => {
-        // Sanitize Content-Type header - WTTP sometimes returns malformed charset
-        if (key.toLowerCase() === 'content-type') {
-          // Remove trailing "; charset=" with no value
-          value = value.replace(/;\s*charset=\s*$/i, '');
-          // If still has charset but no value, remove it
-          value = value.replace(/;\s*charset=;/gi, ';');
-          console.log(`  Setting header (sanitized): ${key} = ${value}`);
-        } else {
-          console.log(`  Setting header: ${key} = ${value}`);
-        }
-        res.setHeader(key, value);
-      });
-    }
-    
-    // Add CORS headers for web applications
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-    
-    const finalContentType = res.getHeader('Content-Type');
-    console.log(`[Response] Final Content-Type being sent:`, finalContentType);
-    
-    // Get response body
-    const content = await response.text();
-    
-    console.log(`[WTTP] Content received:`);
-    console.log(`  Type: ${typeof content}`);
-    console.log(`  Length: ${content.length} bytes`);
-    if (content.length > 0 && content.length < 5000) {
-      console.log(`  First 500 chars: ${content.substring(0, 500)}...`);
+    if (isBridgeDomain(hostname)) {
+      await handleBridgeDomainRequest(req, res);
     } else {
-      console.log(`  First 200 chars: ${content.substring(0, 200)}...`);
+      await handleCustomDomainRequest(req, res);
     }
     
-    // Transform content based on type
-    const contentType = res.getHeader('Content-Type') || '';
-    console.log(`[Transform] Checking content type: ${contentType}`);
-    
-    if (typeof content === 'string') {
-      let transformedContent = content;
-      
-      // Check if this is HTML content
-      if (contentType.includes('text/html')) {
-        console.log(`[Transform] HTML content detected, adding base tag and replacing wttp:// URLs`);
-        
-        // Build the base URL for this request
-        let baseUrl;
-        if (isBridgeDomain(req.hostname)) {
-          // For bridge domains, include WTTP site context
-          const pathParts = req.path.split('/').filter(p => p);
-          const wttpSite = pathParts[0];
-          baseUrl = `/${wttpSite}/`;
-        } else {
-          // For custom domains, use domain as base
-          baseUrl = `/`;
-        }
-        
-        console.log(`[Transform] Base URL: ${baseUrl}`);
-        
-        // Add base tag to HTML head
-        transformedContent = transformedContent.replace(
-          /<head[^>]*>/i,
-          `$&<base href="${baseUrl}">`
-        );
-
-      }
-        
-      // Replace wttp:// URLs with default bridge
-      transformedContent = transformedContent.replace(/wttp:\/\//g, DEFAULT_BRIDGE_URL);
-      console.log(`[Transform] HTML transformation completed`);
-      
-      res.send(transformedContent);
-    } else {
-      res.send(content);
-    }
-    
-    console.log(`[Bridge] Request completed successfully`);
+    console.log(`[Success] Request completed`);
     
   } catch (error) {
     console.error(`[ERROR] ${error?.message || error}`);
@@ -270,10 +418,10 @@ app.use(async (req, res) => {
     
     if (errorMessage.includes('not found') || errorMessage.includes('404')) {
       statusCode = 404;
-      errorMessage = 'WTTP resource not found';
+      errorMessage = 'Resource not found';
     } else if (errorMessage.includes('timeout')) {
       statusCode = 504;
-      errorMessage = 'WTTP request timeout';
+      errorMessage = 'Request timeout';
     }
     
     res.status(statusCode).json({
@@ -287,19 +435,18 @@ app.use(async (req, res) => {
 // Start the server
 app.listen(port, () => {
   console.log(`\n${'='.repeat(80)}`);
-  console.log(`WTTP Bridge Server v1.0.0`);
+  console.log(`WTTP Bridge Server v2.0.0`);
   console.log(`${'='.repeat(80)}`);
   console.log(`Server running on: http://localhost:${port}`);
   console.log(`\nBridge Domain Usage (path-based):`);
   console.log(`  http://localhost:${port}/wordl3.eth/`);
   console.log(`  http://wttp.page/minesweep.eth/`);
-  console.log(`  http://wttp.link/etherdoom.eth/`);
+  console.log(`  http://wttp.link/0x1234.../index.html`);
   console.log(`\nCustom Domain Usage (TXT record-based):`);
   console.log(`  Configure DNS TXT record for: wttp.your-custom-domain.com`);
   console.log(`  TXT record format: "v=wttp3; a=wordl3.eth; chain=11155111;"`);
   console.log(`  Access: http://your-custom-domain.com/`);
-  console.log(`\nBridge domains (path-based):`, BRIDGE_DOMAINS);
-  console.log(`All other domains use TXT record lookup`);
+  console.log(`\nBridge domains:`, BRIDGE_DOMAINS);
   console.log(`${'='.repeat(80)}\n`);
 });
 

@@ -229,12 +229,12 @@ async function sendWTTPResponse(res, response, req) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
   
-  // Get response body
-  const content = await response.text();
   const contentType = res.getHeader('Content-Type') || '';
+  console.log(`[WTTP] Content type: ${contentType}`);
   
-  // Transform HTML content
-  if (typeof content === 'string' && contentType.includes('text/html')) {
+  // For HTML content, get as text and transform
+  if (contentType.includes('text/html')) {
+    const content = await response.text();
     let baseUrl;
     if (isBridgeDomain(req.hostname)) {
       const pathParts = req.path.split('/').filter(p => p);
@@ -246,7 +246,15 @@ async function sendWTTPResponse(res, response, req) {
     
     const transformedContent = transformHTMLContent(content, baseUrl);
     res.send(transformedContent);
-  } else {
+  } 
+  // For binary content (images, etc.), get as buffer
+  else if (contentType.includes('image/') || contentType.includes('application/octet-stream') || contentType.includes('video/') || contentType.includes('audio/')) {
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  }
+  // For other text content
+  else {
+    const content = await response.text();
     res.send(content);
   }
 }

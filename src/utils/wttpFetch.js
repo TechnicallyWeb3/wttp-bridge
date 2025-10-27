@@ -1037,11 +1037,11 @@ export function isTextMimeType(mimeType) {
 /**
  * Utility function to decode content as text if it's a text MIME type
  */
-export function decodeContent(content, mimeType) {
+export function decodeContent(response, mimeType) {
   if (isTextMimeType(mimeType)) {
-    return new TextDecoder().decode(content);
+    return response.text();
   }
-  return content;
+  return response.arrayBuffer();
 }
 
 /**
